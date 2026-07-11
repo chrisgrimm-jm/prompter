@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Teleprompter — Control</title>
 <style>
-  :root{--bg:#0d1117;--panel:#161b22;--edge:#2a3441;--accent:#4da3ff;--gold:#ffd200;--txt:#e6edf3;--dim:#8b98a5;}
+  :root{--bg:#0d1117;--panel:#161b22;--edge:#2a3441;--accent:#4da3ff;--gold:#ffd200;--txt:#e6edf3;--dim:#8b98a5;--live:#27ae60;}
   *{box-sizing:border-box;margin:0;padding:0;}
   body{background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:16px;}
   h1{font-size:19px;color:var(--gold);margin-bottom:2px;}
@@ -13,7 +13,7 @@
   .wrap{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;align-items:start;}
   @media(max-width:900px){.wrap{grid-template-columns:1fr;}}
   .panel{background:var(--panel);border:1px solid var(--edge);border-radius:12px;padding:14px;margin-bottom:14px;}
-  .panel h2{font-size:12px;text-transform:uppercase;letter-spacing:.7px;color:var(--dim);margin-bottom:10px;}
+  .panel h2{font-size:12px;text-transform:uppercase;letter-spacing:.7px;color:var(--dim);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;}
 
   label{display:block;font-size:12px;color:var(--dim);margin:10px 0 4px;}
   input[type=text],input[type=url]{width:100%;background:#0b0f16;border:1px solid var(--edge);border-radius:8px;color:var(--txt);padding:9px 10px;font-size:13px;}
@@ -29,22 +29,39 @@
   button.play.paused{background:var(--gold);color:#241d00;border-color:var(--gold);}
   .btns{display:flex;gap:8px;flex-wrap:wrap;}
 
-  #editor{min-height:340px;max-height:52vh;overflow:auto;background:#fff;color:#111;border-radius:8px;padding:16px 18px;font-size:16px;line-height:1.5;}
+  /* ---------- script library ---------- */
+  #libList{display:flex;flex-direction:column;gap:8px;max-height:40vh;overflow:auto;}
+  .libItem{display:flex;align-items:center;gap:8px;background:#0b0f16;border:1px solid var(--edge);border-radius:10px;padding:8px 10px;transition:.12s;}
+  .libItem.active{border-color:var(--live);box-shadow:0 0 0 1px var(--live) inset;}
+  .libGo{flex:1;text-align:left;display:flex;align-items:center;gap:9px;background:transparent;border:none;color:var(--txt);font-size:14px;padding:5px 4px;border-radius:7px;}
+  .libGo:hover{background:#141b26;border:none;}
+  .libGo .tri{color:var(--live);font-size:15px;}
+  .libItem.active .libGo .tri{color:var(--gold);}
+  .libGo .nm{font-weight:800;}
+  .libGo .wc{color:var(--dim);font-size:11.5px;font-weight:500;}
+  .liveBadge{background:var(--live);color:#04140a;font-size:10px;font-weight:900;letter-spacing:.5px;padding:2px 6px;border-radius:5px;}
+  .iconBtn{padding:6px 8px;font-size:12px;background:#1d2530;}
+  .libEmpty{color:var(--dim);font-size:13px;padding:10px 2px;line-height:1.5;}
+
+  #editor{min-height:220px;max-height:42vh;overflow:auto;background:#fff;color:#111;border-radius:8px;padding:16px 18px;font-size:16px;line-height:1.5;}
   #editor:empty::before{content:'Paste your ad copy here (straight from the Google Doc — colors & highlights are kept). Or load a published Doc link below.';color:#9aa;}
   .swatches{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;}
   .sw{width:26px;height:26px;border-radius:6px;border:1px solid #0006;cursor:pointer;}
   .sw.hl{border-radius:4px;}
   .tool{font-size:12px;padding:6px 9px;}
+  .editing{font-size:11.5px;color:var(--gold);font-weight:700;text-transform:none;letter-spacing:0;}
 
   .pill{display:inline-flex;align-items:center;gap:6px;background:#0b0f16;border:1px solid var(--edge);border-radius:20px;padding:5px 11px;font-size:12px;}
   #link{display:inline-block;width:9px;height:9px;border-radius:50%;background:#c0392b;}
   #link.on{background:#27ae60;}
+  #nowLive{font-size:12px;color:var(--dim);}
+  #nowLive b{color:var(--gold);}
 
   .toggles{display:flex;flex-direction:column;gap:8px;}
   .tg{display:flex;align-items:center;justify-content:space-between;font-size:13px;}
   .tg input{width:18px;height:18px;accent-color:var(--accent);}
 
-  #prevWrap{background:#000;border-radius:8px;overflow:hidden;height:220px;position:relative;}
+  #prevWrap{background:#000;border-radius:8px;overflow:hidden;height:200px;position:relative;}
   #prevFlip{position:absolute;inset:0;transform-origin:center;}
   #prevPrompt{padding:48% 8%;color:#fff;font-size:15px;line-height:1.4;font-weight:600;will-change:transform;}
   #prevLine{position:absolute;left:0;right:0;top:40%;border-top:2px solid rgba(255,90,90,.5);pointer-events:none;}
@@ -57,11 +74,12 @@
 </head>
 <body>
   <h1>🎬 Teleprompter — Control</h1>
-  <div class="sub">Booth control for podcast ad reads. Runs the in-room prompter without ever touching the livestream.</div>
+  <div class="sub">Booth control for podcast ad reads. Program your reads ahead, then click one to put it on the in-room prompter.</div>
 
   <div class="row between" style="margin-bottom:14px;">
     <span class="pill">Session <b id="topicName" style="margin:0 4px;color:var(--gold)"></b>
       <span id="link"></span><span id="linkTxt" style="color:var(--dim)">connecting…</span></span>
+    <span id="nowLive">Nothing on prompter yet</span>
     <div class="btns">
       <button id="copyDisp" class="tool">📺 Copy Display URL</button>
       <button id="openDisp" class="tool">↗ Open Display</button>
@@ -70,17 +88,28 @@
 
   <div class="wrap">
     <div>
+      <!-- LIBRARY -->
       <div class="panel">
-        <h2>Script</h2>
+        <h2>Script Library <button id="newScript" class="tool primary" style="text-transform:none;letter-spacing:0">＋ New read</button></h2>
+        <div id="libList"></div>
+      </div>
+
+      <!-- EDITOR -->
+      <div class="panel">
+        <h2><span>Edit read <span id="editingLbl" class="editing"></span></span></h2>
+        <label>Name this read (e.g. “T-Mobile read”)</label>
+        <input type="text" id="scriptName" placeholder="T-Mobile read" autocomplete="off">
+        <label>Copy</label>
         <div class="swatches" id="swatches"></div>
         <div id="editor" contenteditable="true" spellcheck="false"></div>
         <div class="btns" style="margin-top:10px;">
-          <button id="send" class="primary">➤ Send to Prompter</button>
-          <button id="clear" class="tool">Clear</button>
+          <button id="saveScript" class="primary">💾 Save to library</button>
+          <button id="saveSend">💾 Save &amp; put on prompter</button>
+          <button id="cancelEdit" class="tool">Clear</button>
           <span class="msg" id="msg"></span>
         </div>
 
-        <label>…or load a published Google Doc (File ▸ Share ▸ Publish to web ▸ copy link)</label>
+        <label>…or load a published Google Doc into this read (File ▸ Share ▸ Publish to web)</label>
         <div class="row">
           <input type="url" id="docUrl" placeholder="https://docs.google.com/document/d/e/…/pub">
           <button id="loadDoc" class="tool">Load</button>
@@ -170,6 +199,7 @@
   var settingsRef = base().child('settings');
   var contentRef  = base().child('content');
   var cmdRef      = base().child('cmd');
+  var scriptsRef  = base().child('scripts');
 
   function setLink(on){ $('link').classList.toggle('on',on); $('linkTxt').textContent = on?'live (Firebase)':'offline'; }
   _db.ref('.info/connected').on('value', function(s){ setLink(!!s.val()); });
@@ -178,9 +208,11 @@
   var st = {playing:false, speed:70, fontSize:60, lineHeight:1.4, weight:600,
             bg:'#0b0b0b', fg:'#ffffff', margin:8, mirrorH:false, mirrorV:false, showLine:true};
   var contentVer = 0, cmdN = 0, lastHtml = '', ready = false;
+  var library = [];         // [{id, name, html, ts}]
+  var editingId = null;     // script currently loaded in the editor (null = new/unsaved)
+  var activeId  = null;     // script currently on the prompter
 
   function pushSettings(){ if(ready) settingsRef.set(st); applyPreview(); }
-  function sendContent(html){ contentVer++; contentRef.set({ver:contentVer, html:html}); }
   function command(t, extra){ var c = Object.assign({n:++cmdN, t:t}, extra||{}); cmdRef.set(c); }
 
   // ---------------- rich-paste sanitizer ----------------
@@ -211,7 +243,7 @@
         if(n.nodeType===3){ dst.appendChild(document.createTextNode(n.nodeValue)); return; }
         if(n.nodeType!==1) return;
         var tag=n.tagName;
-        if(!ALLOWED[tag]){ walk(n,dst); return; }   // unwrap disallowed, keep children
+        if(!ALLOWED[tag]){ walk(n,dst); return; }
         var el=document.createElement(tag);
         var style=cleanStyle(n); if(style) el.setAttribute('style',style);
         walk(n,el);
@@ -220,6 +252,8 @@
     })(node,out);
     return out.innerHTML;
   }
+  function plainText(html){ var d=document.createElement('div'); d.innerHTML=html||''; return (d.innerText||d.textContent||'').trim(); }
+  function wordCount(html){ var t=plainText(html); return t? t.split(/\s+/).length : 0; }
 
   var editor=$('editor');
   editor.addEventListener('paste',function(e){
@@ -230,19 +264,101 @@
     else if(text){ document.execCommand('insertText', false, text); }
   });
 
-  // manual colour / highlight swatches for last-second edits
+  // colour / highlight swatches
   var TEXT=['#111111','#d10000','#e69100','#0a7d00','#0057d8'];
   var HL=['#fff275','#ffb3b3','#b8f3c0','#bcdcff'];
   var sw=$('swatches');
   TEXT.forEach(function(c){ var b=document.createElement('div'); b.className='sw'; b.style.background=c; b.title='Text colour'; b.onclick=function(){ document.execCommand('foreColor',false,c); }; sw.appendChild(b); });
   var gap=document.createElement('div'); gap.style.width='10px'; sw.appendChild(gap);
   HL.forEach(function(c){ var b=document.createElement('div'); b.className='sw hl'; b.style.background=c; b.title='Highlight'; b.onclick=function(){ document.execCommand('hiliteColor',false,c)||document.execCommand('backColor',false,c); }; sw.appendChild(b); });
-  var clr=document.createElement('button'); clr.className='tool'; clr.textContent='Clear fmt'; clr.style.marginLeft='6px'; clr.onclick=function(){ document.execCommand('removeFormat'); }; sw.appendChild(clr);
+  var clrfmt=document.createElement('button'); clrfmt.className='tool'; clrfmt.textContent='Clear fmt'; clrfmt.style.marginLeft='6px'; clrfmt.onclick=function(){ document.execCommand('removeFormat'); }; sw.appendChild(clrfmt);
 
-  // ---------------- send / clear / doc load ----------------
   function msg(t,cls){ var m=$('msg'); m.textContent=t; m.className='msg '+(cls||''); if(t) setTimeout(function(){ if(m.textContent===t){m.textContent='';m.className='msg';} },4000); }
-  $('send').onclick=function(){ lastHtml=sanitize(editor); sendContent(lastHtml); applyPreview(); msg('Sent to prompter ✓','ok'); };
-  $('clear').onclick=function(){ editor.innerHTML=''; lastHtml=''; sendContent(''); applyPreview(); };
+
+  // ---------------- library render + CRUD ----------------
+  function findScript(id){ for(var i=0;i<library.length;i++){ if(library[i].id===id) return library[i]; } return null; }
+
+  function renderLib(){
+    var box=$('libList'); box.innerHTML='';
+    if(!library.length){
+      box.innerHTML='<div class="libEmpty">No reads yet. Click <b>＋ New read</b>, paste your ad copy, name it, and save. Do this for each sponsor before the show.</div>';
+      return;
+    }
+    library.forEach(function(s){
+      var row=document.createElement('div');
+      row.className='libItem'+(s.id===activeId?' active':'');
+      var wc=wordCount(s.html);
+      var go=document.createElement('button');
+      go.className='libGo';
+      go.title='Put this read on the prompter';
+      go.innerHTML='<span class="tri">▶</span><span class="nm"></span>'
+                 + (s.id===activeId?'<span class="liveBadge">LIVE</span>':'')
+                 + '<span class="wc">'+wc+' words</span>';
+      go.querySelector('.nm').textContent = s.name || 'Untitled';
+      go.onclick=function(){ goLive(s); };
+
+      var edit=document.createElement('button'); edit.className='iconBtn'; edit.textContent='✎'; edit.title='Edit'; edit.onclick=function(){ loadIntoEditor(s); };
+      var del =document.createElement('button'); del.className='iconBtn'; del.textContent='🗑'; del.title='Delete';
+      del.onclick=function(){ if(confirm('Delete “'+(s.name||'Untitled')+'”?')){ scriptsRef.child(s.id).remove(); if(editingId===s.id){ newScript(); } } };
+
+      row.appendChild(go); row.appendChild(edit); row.appendChild(del);
+      box.appendChild(row);
+    });
+  }
+
+  function setNowLive(){
+    var s = activeId ? findScript(activeId) : null;
+    $('nowLive').innerHTML = s ? ('On prompter: <b>'+ (s.name||'Untitled') +'</b>')
+                              : (lastHtml ? 'On prompter: <b>(unsaved read)</b>' : 'Nothing on prompter yet');
+  }
+
+  // Put a read on the prompter: write its content, reset to top, hold paused so the host can hit Play.
+  function goLive(s){
+    lastHtml = s.html || '';
+    contentVer++;
+    contentRef.set({ver:contentVer, html:lastHtml, activeId:s.id||null, name:s.name||''});
+    activeId = s.id || null;
+    st.playing = false; reflectPlay(); pushSettings();
+    command('seek',{frac:0}); seekPos=0; $('seek').value=0;
+    renderLib(); setNowLive(); applyPreview();
+    msg('“'+(s.name||'read')+'” is on the prompter ✓','ok');
+  }
+
+  // ---------------- editor actions ----------------
+  function loadIntoEditor(s){
+    editingId = s.id;
+    $('scriptName').value = s.name || '';
+    editor.innerHTML = s.html || '';
+    $('editingLbl').textContent = '— editing “'+(s.name||'Untitled')+'”';
+    editor.scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
+  function newScript(){
+    editingId = null;
+    $('scriptName').value = '';
+    editor.innerHTML = '';
+    $('editingLbl').textContent = '— new read';
+    $('scriptName').focus();
+  }
+  // Save the editor into the library; returns the saved {id,name,html}
+  function saveScript(){
+    var name = ($('scriptName').value||'').trim() || 'Untitled read';
+    var html = sanitize(editor);
+    if(!plainText(html)){ msg('Nothing to save — paste some copy first.','err'); return null; }
+    if(editingId){
+      scriptsRef.child(editingId).update({name:name, html:html});
+    } else {
+      var r = scriptsRef.push({name:name, html:html, ts: firebase.database.ServerValue.TIMESTAMP});
+      editingId = r.key;
+    }
+    $('editingLbl').textContent = '— editing “'+name+'”';
+    // if this read is the one currently on the prompter, refresh it live too
+    if(editingId===activeId){ goLive({id:editingId, name:name, html:html}); }
+    return {id:editingId, name:name, html:html};
+  }
+  $('newScript').onclick = newScript;
+  $('saveScript').onclick = function(){ if(saveScript()) msg('Saved to library ✓','ok'); };
+  $('saveSend').onclick   = function(){ var s=saveScript(); if(s) goLive(s); };
+  $('cancelEdit').onclick = newScript;
 
   $('loadDoc').onclick=function(){
     var u=$('docUrl').value.trim();
@@ -256,8 +372,8 @@
         .then(function(html){
           var tmp=document.createElement('div'); tmp.innerHTML=html;
           var clean=sanitize(tmp.querySelector('body')||tmp);
-          editor.innerHTML=clean; lastHtml=clean; sendContent(clean); applyPreview();
-          msg('Loaded from Google Doc ✓','ok');
+          editor.innerHTML=clean;
+          msg('Loaded into editor — name it and Save ✓','ok');
         }).catch(function(){ attempt(i+1); });
     })(0);
   };
@@ -284,7 +400,7 @@
   var seekPos=0, seekTimer=null;
   $('seek').addEventListener('input',function(){
     seekPos=this.value/1000; applyPreview();
-    clearTimeout(seekTimer); seekTimer=setTimeout(function(){ command('seek',{frac:seekPos}); }, 60); // throttle RTDB writes
+    clearTimeout(seekTimer); seekTimer=setTimeout(function(){ command('seek',{frac:seekPos}); }, 60);
   });
 
   document.querySelectorAll('[data-bg]').forEach(function(b){
@@ -309,7 +425,7 @@
     pv.style.paddingLeft=st.margin+'%'; pv.style.paddingRight=st.margin+'%';
     pf.style.transform='scale('+(st.mirrorH?-1:1)+','+(st.mirrorV?-1:1)+')';
     $('prevLine').style.display=st.showLine?'block':'none';
-    pv.innerHTML=lastHtml||'<span style="opacity:.4">— no script sent —</span>';
+    pv.innerHTML=lastHtml||'<span style="opacity:.4">— nothing on prompter —</span>';
     pvMax(); pvPos = seekPos * pvMaxV; drawPrev();
   }
   function pvMax(){ pvMaxV=Math.max(0, pv.scrollHeight - pw.clientHeight); }
@@ -323,20 +439,27 @@
   (function loop(){ pvAdvance(); requestAnimationFrame(loop); })();
   setInterval(pvAdvance, 33);
 
-  // ---------------- hydrate from Firebase, then go live ----------------
+  // ---------------- live library subscription ----------------
+  scriptsRef.on('value', function(snap){
+    var v = snap.val() || {};
+    library = Object.keys(v).map(function(k){ return {id:k, name:v[k].name, html:v[k].html, ts:v[k].ts||0}; });
+    library.sort(function(a,b){ return (a.ts||0) - (b.ts||0); });
+    renderLib(); setNowLive();
+  });
+
+  // ---------------- hydrate settings/content, then go live ----------------
   base().once('value').then(function(snap){
     var v=snap.val()||{};
     if(v.settings){ for(var k in v.settings){ if(st.hasOwnProperty(k)) st[k]=v.settings[k]; } }
-    if(v.content){ contentVer=v.content.ver||0; if(v.content.html){ lastHtml=v.content.html; editor.innerHTML=lastHtml; } }
+    if(v.content){ contentVer=v.content.ver||0; lastHtml=v.content.html||''; activeId=v.content.activeId||null; }
     if(v.cmd && typeof v.cmd.n==='number'){ cmdN=v.cmd.n; }
-    // reflect restored state into the UI
     $('speed').value=st.speed; $('fs').value=st.fontSize; $('lh').value=st.lineHeight; $('mg').value=st.margin;
     $('speedV').textContent=st.speed+' px/s'; $('fsV').textContent=st.fontSize+' px';
     $('lhV').textContent=(+st.lineHeight).toFixed(2); $('mgV').textContent=st.margin+' vw';
     $('mh').checked=st.mirrorH; $('mv').checked=st.mirrorV; $('sl').checked=st.showLine;
-    reflectPlay(); applyPreview();
-    ready=true; settingsRef.set(st);   // ensure a settings node exists for the display
-  }).catch(function(){ ready=true; applyPreview(); });
+    reflectPlay(); newScript(); applyPreview(); renderLib(); setNowLive();
+    ready=true; settingsRef.set(st);
+  }).catch(function(){ ready=true; newScript(); applyPreview(); });
 })();
 </script>
 </body>
