@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Teleprompter</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    background:radial-gradient(circle at 50% 0%, #12204f, #0d1117 60%);
+    color:#e6edf3;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    padding:24px;gap:22px;text-align:center;
+  }
+  h1{font-size:38px;color:#ffd200;text-shadow:0 3px 0 #000;letter-spacing:1px;}
+  p{color:#8b98a5;max-width:520px;line-height:1.55;}
+  .cards{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;margin-top:6px;}
+  a.card{text-decoration:none;color:#fff;width:250px;background:#161b22;border:2px solid #2a3441;border-radius:14px;padding:22px 20px;transition:border-color .15s,transform .08s;}
+  a.card:hover{border-color:#ffd200;transform:translateY(-2px);}
+  a.card .big{font-size:20px;font-weight:800;margin-bottom:6px;}
+  a.card.host .big{color:#ffd200;} a.card.disp .big{color:#4da3ff;}
+  a.card small{color:#8b98a5;font-size:12.5px;line-height:1.45;display:block;}
+  .safe{max-width:520px;background:#10261a;border:1px solid #1e5637;color:#8fe3b0;border-radius:10px;padding:12px 15px;font-size:13px;line-height:1.5;}
+  .foot{color:#5a6673;font-size:12px;margin-top:6px;}
+</style>
+</head>
+<body>
+  <h1>🎬 Teleprompter</h1>
+  <p>A scrolling prompter for podcast ad reads — a booth <b>control</b> page and an in-room <b>display</b>, synced live over Firebase. Paste straight from the Google Doc and your colors &amp; highlights come along.</p>
+  <div class="cards">
+    <a class="card host" href="control.html">
+      <div class="big">🎛️ Control</div>
+      <small>Open in the booth (or on a phone/laptop). Load copy, set speed, play/pause.</small>
+    </a>
+    <a class="card disp" href="display.html">
+      <div class="big">📺 Display</div>
+      <small>Fullscreen this on the in-room monitor. Use <b>Copy Display URL</b> on the control page for the matching session link.</small>
+    </a>
+  </div>
+  <div class="safe">🔒 <b>Never on the livestream:</b> the Display is a plain browser window, not an OBS source — so there's no scene and no capture for the audience to ever see.</div>
+  <div class="foot">Jomboy Media · hosted on GitHub Pages</div>
+</body>
+</html>

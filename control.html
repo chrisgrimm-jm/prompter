@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Teleprompter — Control</title>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--edge:#2a3441;--accent:#4da3ff;--gold:#ffd200;--txt:#e6edf3;--dim:#8b98a5;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:16px;}
+  h1{font-size:19px;color:var(--gold);margin-bottom:2px;}
+  .sub{color:var(--dim);font-size:12.5px;margin-bottom:14px;}
+  .wrap{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;align-items:start;}
+  @media(max-width:900px){.wrap{grid-template-columns:1fr;}}
+  .panel{background:var(--panel);border:1px solid var(--edge);border-radius:12px;padding:14px;margin-bottom:14px;}
+  .panel h2{font-size:12px;text-transform:uppercase;letter-spacing:.7px;color:var(--dim);margin-bottom:10px;}
+
+  label{display:block;font-size:12px;color:var(--dim);margin:10px 0 4px;}
+  input[type=text],input[type=url]{width:100%;background:#0b0f16;border:1px solid var(--edge);border-radius:8px;color:var(--txt);padding:9px 10px;font-size:13px;}
+  input[type=range]{width:100%;accent-color:var(--accent);}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .row.between{justify-content:space-between;}
+  .val{font-variant-numeric:tabular-nums;color:var(--txt);font-size:12px;min-width:46px;text-align:right;}
+
+  button{font-family:inherit;font-size:13px;font-weight:700;border:1px solid var(--edge);background:#1d2530;color:var(--txt);border-radius:9px;padding:9px 13px;cursor:pointer;transition:.12s;}
+  button:hover{border-color:var(--accent);}
+  button.primary{background:var(--accent);color:#04121f;border-color:var(--accent);}
+  button.play{background:#27ae60;color:#04140a;border-color:#27ae60;min-width:120px;font-size:15px;}
+  button.play.paused{background:var(--gold);color:#241d00;border-color:var(--gold);}
+  .btns{display:flex;gap:8px;flex-wrap:wrap;}
+
+  #editor{min-height:340px;max-height:52vh;overflow:auto;background:#fff;color:#111;border-radius:8px;padding:16px 18px;font-size:16px;line-height:1.5;}
+  #editor:empty::before{content:'Paste your ad copy here (straight from the Google Doc — colors & highlights are kept). Or load a published Doc link below.';color:#9aa;}
+  .swatches{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;}
+  .sw{width:26px;height:26px;border-radius:6px;border:1px solid #0006;cursor:pointer;}
+  .sw.hl{border-radius:4px;}
+  .tool{font-size:12px;padding:6px 9px;}
+
+  .pill{display:inline-flex;align-items:center;gap:6px;background:#0b0f16;border:1px solid var(--edge);border-radius:20px;padding:5px 11px;font-size:12px;}
+  #link{display:inline-block;width:9px;height:9px;border-radius:50%;background:#c0392b;}
+  #link.on{background:#27ae60;}
+
+  .toggles{display:flex;flex-direction:column;gap:8px;}
+  .tg{display:flex;align-items:center;justify-content:space-between;font-size:13px;}
+  .tg input{width:18px;height:18px;accent-color:var(--accent);}
+
+  #prevWrap{background:#000;border-radius:8px;overflow:hidden;height:220px;position:relative;}
+  #prevFlip{position:absolute;inset:0;transform-origin:center;}
+  #prevPrompt{padding:48% 8%;color:#fff;font-size:15px;line-height:1.4;font-weight:600;will-change:transform;}
+  #prevLine{position:absolute;left:0;right:0;top:40%;border-top:2px solid rgba(255,90,90,.5);pointer-events:none;}
+  .note{font-size:11.5px;color:var(--dim);margin-top:6px;line-height:1.4;}
+  .safe{background:#10261a;border:1px solid #1e5637;color:#8fe3b0;border-radius:8px;padding:9px 11px;font-size:12px;line-height:1.45;margin-top:10px;}
+  a{color:var(--accent);}
+  .msg{font-size:12px;margin-top:6px;min-height:15px;}
+  .msg.err{color:#ff8a8a;} .msg.ok{color:#8fe3b0;}
+</style>
+</head>
+<body>
+  <h1>🎬 Teleprompter — Control</h1>
+  <div class="sub">Booth control for podcast ad reads. Runs the in-room prompter without ever touching the livestream.</div>
+
+  <div class="row between" style="margin-bottom:14px;">
+    <span class="pill">Session <b id="topicName" style="margin:0 4px;color:var(--gold)"></b>
+      <span id="link"></span><span id="linkTxt" style="color:var(--dim)">connecting…</span></span>
+    <div class="btns">
+      <button id="copyDisp" class="tool">📺 Copy Display URL</button>
+      <button id="openDisp" class="tool">↗ Open Display</button>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div>
+      <div class="panel">
+        <h2>Script</h2>
+        <div class="swatches" id="swatches"></div>
+        <div id="editor" contenteditable="true" spellcheck="false"></div>
+        <div class="btns" style="margin-top:10px;">
+          <button id="send" class="primary">➤ Send to Prompter</button>
+          <button id="clear" class="tool">Clear</button>
+          <span class="msg" id="msg"></span>
+        </div>
+
+        <label>…or load a published Google Doc (File ▸ Share ▸ Publish to web ▸ copy link)</label>
+        <div class="row">
+          <input type="url" id="docUrl" placeholder="https://docs.google.com/document/d/e/…/pub">
+          <button id="loadDoc" class="tool">Load</button>
+        </div>
+        <div class="note">If Google blocks the fetch (a CORS error), just open the Doc and paste the text in above — pasting keeps every color and highlight.</div>
+      </div>
+
+      <div class="panel">
+        <h2>Live Preview <span style="text-transform:none;font-weight:400">(approximate — the room monitor is authoritative)</span></h2>
+        <div id="prevWrap"><div id="prevFlip"><div id="prevPrompt"></div></div><div id="prevLine"></div></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h2>Transport</h2>
+        <div class="row" style="justify-content:center;margin-bottom:12px;">
+          <button id="play" class="play paused">▶ Play</button>
+        </div>
+        <div class="btns" style="justify-content:center;">
+          <button id="toTop">⤒ Top</button>
+          <button id="back">◂ Back</button>
+          <button id="fwd">Fwd ▸</button>
+          <button id="toEnd">End ⤓</button>
+        </div>
+        <label>Scroll speed <span class="val" id="speedV"></span></label>
+        <input type="range" id="speed" min="0" max="240" step="5" value="70">
+        <label>Scrub position</label>
+        <input type="range" id="seek" min="0" max="1000" step="1" value="0">
+      </div>
+
+      <div class="panel">
+        <h2>Appearance</h2>
+        <label>Font size <span class="val" id="fsV"></span></label>
+        <input type="range" id="fs" min="24" max="140" step="2" value="60">
+        <label>Line spacing <span class="val" id="lhV"></span></label>
+        <input type="range" id="lh" min="1" max="2.4" step="0.05" value="1.4">
+        <label>Side margins <span class="val" id="mgV"></span></label>
+        <input type="range" id="mg" min="0" max="25" step="1" value="8">
+        <label>Theme</label>
+        <div class="btns">
+          <button data-bg="#0b0b0b" data-fg="#ffffff">Dark</button>
+          <button data-bg="#ffffff" data-fg="#111111">Light (match doc)</button>
+          <button data-bg="#111111" data-fg="#ffd200">Amber</button>
+        </div>
+        <div class="toggles" style="margin-top:14px;">
+          <label class="tg">Mirror horizontally (teleprompter glass) <input type="checkbox" id="mh"></label>
+          <label class="tg">Flip vertically <input type="checkbox" id="mv"></label>
+          <label class="tg">Show reading line <input type="checkbox" id="sl" checked></label>
+        </div>
+      </div>
+
+      <div class="safe">
+        🔒 <b>Livestream-safe:</b> open the Display on the in-room monitor (fullscreen, F11).
+        Because it's a normal browser window and <b>not</b> an OBS source, the audience can never see it —
+        no scene, no capture, no leak.
+      </div>
+    </div>
+  </div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+<script>
+(function(){
+  "use strict";
+  var params = new URLSearchParams(location.search);
+  var topic = (params.get('topic')||'').trim();
+  if(!topic){ topic = 'adread-' + Math.abs(hashStr(navigator.userAgent + screen.width)).toString(36); }
+  function hashStr(s){var h=0;for(var i=0;i<s.length;i++){h=(h*31 + s.charCodeAt(i))|0;}return h;}
+  document.getElementById('topicName').textContent = topic;
+  var $ = function(id){return document.getElementById(id);};
+
+  // ---------------- Firebase (shared Jomboy project) ----------------
+  var FIREBASE_CONFIG = {
+    apiKey: "AIzaSyBG2PS2muH4i27HefuLeBnZWW-TZ5dkMCw",
+    authDomain: "pinpoint-abf21.firebaseapp.com",
+    databaseURL: "https://pinpoint-abf21-default-rtdb.firebaseio.com",
+    projectId: "pinpoint-abf21",
+    storageBucket: "pinpoint-abf21.firebasestorage.app",
+    messagingSenderId: "947703489099",
+    appId: "1:947703489099:web:c4ed96cfbaeeda594463ce"
+  };
+  firebase.initializeApp(FIREBASE_CONFIG);
+  var _db = firebase.database();
+  function ppKey(t){ return String(t).trim().replace(/[.#$\[\]\/\s]+/g,'-'); }
+  function base(){ return _db.ref('prompter/' + ppKey(topic)); }
+  var settingsRef = base().child('settings');
+  var contentRef  = base().child('content');
+  var cmdRef      = base().child('cmd');
+
+  function setLink(on){ $('link').classList.toggle('on',on); $('linkTxt').textContent = on?'live (Firebase)':'offline'; }
+  _db.ref('.info/connected').on('value', function(s){ setLink(!!s.val()); });
+
+  // ---------------- state ----------------
+  var st = {playing:false, speed:70, fontSize:60, lineHeight:1.4, weight:600,
+            bg:'#0b0b0b', fg:'#ffffff', margin:8, mirrorH:false, mirrorV:false, showLine:true};
+  var contentVer = 0, cmdN = 0, lastHtml = '', ready = false;
+
+  function pushSettings(){ if(ready) settingsRef.set(st); applyPreview(); }
+  function sendContent(html){ contentVer++; contentRef.set({ver:contentVer, html:html}); }
+  function command(t, extra){ var c = Object.assign({n:++cmdN, t:t}, extra||{}); cmdRef.set(c); }
+
+  // ---------------- rich-paste sanitizer ----------------
+  var ALLOWED = {P:1,DIV:1,BR:1,SPAN:1,B:1,STRONG:1,I:1,EM:1,U:1,S:1,STRIKE:1,H1:1,H2:1,H3:1,H4:1,UL:1,OL:1,LI:1};
+  function isDark(c){
+    if(!c) return false;
+    var m=c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+    if(m){ return (+m[1]<60 && +m[2]<60 && +m[3]<60); }
+    c=c.toLowerCase().replace(/\s/g,'');
+    return c==='#000'||c==='#000000'||c==='black'||c==='#111'||c==='#111111'||c==='#222'||c==='#222222';
+  }
+  function cleanStyle(el){
+    var keep=[], s=el.style;
+    if(s.color && !isDark(s.color)) keep.push('color:'+s.color);
+    if(s.backgroundColor && s.backgroundColor!=='transparent' && !/rgba?\([^)]*,\s*0\)/.test(s.backgroundColor))
+      keep.push('background-color:'+s.backgroundColor+';border-radius:4px');
+    var fw=s.fontWeight; if(fw==='bold'||(+fw>=600)) keep.push('font-weight:800');
+    if(s.fontStyle==='italic') keep.push('font-style:italic');
+    if(s.textDecorationLine && s.textDecorationLine!=='none') keep.push('text-decoration:'+s.textDecorationLine);
+    else if(s.textDecoration && /(underline|line-through)/.test(s.textDecoration)) keep.push('text-decoration:'+s.textDecoration);
+    if(/^(P|DIV|H1|H2|H3|H4|LI)$/.test(el.tagName) && s.textAlign && s.textAlign!=='start') keep.push('text-align:'+s.textAlign);
+    return keep.join(';');
+  }
+  function sanitize(node){
+    var out=document.createElement('div');
+    (function walk(src,dst){
+      src.childNodes.forEach(function(n){
+        if(n.nodeType===3){ dst.appendChild(document.createTextNode(n.nodeValue)); return; }
+        if(n.nodeType!==1) return;
+        var tag=n.tagName;
+        if(!ALLOWED[tag]){ walk(n,dst); return; }   // unwrap disallowed, keep children
+        var el=document.createElement(tag);
+        var style=cleanStyle(n); if(style) el.setAttribute('style',style);
+        walk(n,el);
+        dst.appendChild(el);
+      });
+    })(node,out);
+    return out.innerHTML;
+  }
+
+  var editor=$('editor');
+  editor.addEventListener('paste',function(e){
+    e.preventDefault();
+    var html=(e.clipboardData||window.clipboardData).getData('text/html');
+    var text=(e.clipboardData||window.clipboardData).getData('text/plain');
+    if(html){ var tmp=document.createElement('div'); tmp.innerHTML=html; document.execCommand('insertHTML', false, sanitize(tmp)); }
+    else if(text){ document.execCommand('insertText', false, text); }
+  });
+
+  // manual colour / highlight swatches for last-second edits
+  var TEXT=['#111111','#d10000','#e69100','#0a7d00','#0057d8'];
+  var HL=['#fff275','#ffb3b3','#b8f3c0','#bcdcff'];
+  var sw=$('swatches');
+  TEXT.forEach(function(c){ var b=document.createElement('div'); b.className='sw'; b.style.background=c; b.title='Text colour'; b.onclick=function(){ document.execCommand('foreColor',false,c); }; sw.appendChild(b); });
+  var gap=document.createElement('div'); gap.style.width='10px'; sw.appendChild(gap);
+  HL.forEach(function(c){ var b=document.createElement('div'); b.className='sw hl'; b.style.background=c; b.title='Highlight'; b.onclick=function(){ document.execCommand('hiliteColor',false,c)||document.execCommand('backColor',false,c); }; sw.appendChild(b); });
+  var clr=document.createElement('button'); clr.className='tool'; clr.textContent='Clear fmt'; clr.style.marginLeft='6px'; clr.onclick=function(){ document.execCommand('removeFormat'); }; sw.appendChild(clr);
+
+  // ---------------- send / clear / doc load ----------------
+  function msg(t,cls){ var m=$('msg'); m.textContent=t; m.className='msg '+(cls||''); if(t) setTimeout(function(){ if(m.textContent===t){m.textContent='';m.className='msg';} },4000); }
+  $('send').onclick=function(){ lastHtml=sanitize(editor); sendContent(lastHtml); applyPreview(); msg('Sent to prompter ✓','ok'); };
+  $('clear').onclick=function(){ editor.innerHTML=''; lastHtml=''; sendContent(''); applyPreview(); };
+
+  $('loadDoc').onclick=function(){
+    var u=$('docUrl').value.trim();
+    if(!u){ msg('Paste a published Doc link first.','err'); return; }
+    var tryUrls=[u], m2=u.match(/\/document\/d\/([a-zA-Z0-9_-]+)/);
+    if(m2){ tryUrls.unshift('https://docs.google.com/document/d/'+m2[1]+'/export?format=html'); }
+    msg('Fetching…');
+    (function attempt(i){
+      if(i>=tryUrls.length){ msg('Google blocked the fetch (CORS). Open the Doc and paste instead.','err'); return; }
+      fetch(tryUrls[i]).then(function(r){ if(!r.ok) throw 0; return r.text(); })
+        .then(function(html){
+          var tmp=document.createElement('div'); tmp.innerHTML=html;
+          var clean=sanitize(tmp.querySelector('body')||tmp);
+          editor.innerHTML=clean; lastHtml=clean; sendContent(clean); applyPreview();
+          msg('Loaded from Google Doc ✓','ok');
+        }).catch(function(){ attempt(i+1); });
+    })(0);
+  };
+
+  // ---------------- transport controls ----------------
+  var playBtn=$('play');
+  function reflectPlay(){ playBtn.classList.toggle('paused',!st.playing); playBtn.textContent=st.playing?'⏸ Pause':'▶ Play'; }
+  playBtn.onclick=function(){ st.playing=!st.playing; reflectPlay(); pushSettings(); };
+  $('toTop').onclick=function(){ command('seek',{frac:0}); seekPos=0; $('seek').value=0; applyPreview(); };
+  $('toEnd').onclick=function(){ command('seek',{frac:1}); seekPos=1; $('seek').value=1000; applyPreview(); };
+  $('back').onclick=function(){ command('nudge',{dy:-120}); nudgePreview(-120); };
+  $('fwd').onclick=function(){ command('nudge',{dy:120}); nudgePreview(120); };
+
+  function bindRange(id,valId,fmt,apply){
+    var el=$(id), v=$(valId);
+    function upd(){ v.textContent=fmt(el.value); apply(el.value); }
+    el.addEventListener('input',upd); upd();
+  }
+  bindRange('speed','speedV',function(x){return x+' px/s';},function(x){ st.speed=+x; pushSettings(); });
+  bindRange('fs','fsV',function(x){return x+' px';},function(x){ st.fontSize=+x; pushSettings(); });
+  bindRange('lh','lhV',function(x){return (+x).toFixed(2);},function(x){ st.lineHeight=+x; pushSettings(); });
+  bindRange('mg','mgV',function(x){return x+' vw';},function(x){ st.margin=+x; pushSettings(); });
+
+  var seekPos=0, seekTimer=null;
+  $('seek').addEventListener('input',function(){
+    seekPos=this.value/1000; applyPreview();
+    clearTimeout(seekTimer); seekTimer=setTimeout(function(){ command('seek',{frac:seekPos}); }, 60); // throttle RTDB writes
+  });
+
+  document.querySelectorAll('[data-bg]').forEach(function(b){
+    b.onclick=function(){ st.bg=b.getAttribute('data-bg'); st.fg=b.getAttribute('data-fg'); pushSettings(); };
+  });
+  $('mh').onchange=function(){ st.mirrorH=this.checked; pushSettings(); };
+  $('mv').onchange=function(){ st.mirrorV=this.checked; pushSettings(); };
+  $('sl').onchange=function(){ st.showLine=this.checked; pushSettings(); };
+
+  // ---------------- display URL helpers ----------------
+  function dispUrl(){ return location.href.replace(/control\.html.*/,'display.html')+'?topic='+encodeURIComponent(topic); }
+  $('copyDisp').onclick=function(){ navigator.clipboard.writeText(dispUrl()).then(function(){ $('copyDisp').textContent='Copied ✓'; setTimeout(function(){$('copyDisp').textContent='📺 Copy Display URL';},1500); }); };
+  $('openDisp').onclick=function(){ window.open(dispUrl(),'_blank'); };
+
+  // ---------------- local confidence preview (approximate) ----------------
+  var pv=$('prevPrompt'), pf=$('prevFlip'), pw=$('prevWrap'), pvPos=0, pvLast=0, pvMaxV=0;
+  function applyPreview(){
+    if(!pw) return;   // may be called during slider setup before these refs are assigned
+    pw.style.background=st.bg; pv.style.color=st.fg;
+    pv.style.fontSize=Math.max(10, st.fontSize*0.22)+'px';
+    pv.style.lineHeight=st.lineHeight; pv.style.fontWeight=st.weight;
+    pv.style.paddingLeft=st.margin+'%'; pv.style.paddingRight=st.margin+'%';
+    pf.style.transform='scale('+(st.mirrorH?-1:1)+','+(st.mirrorV?-1:1)+')';
+    $('prevLine').style.display=st.showLine?'block':'none';
+    pv.innerHTML=lastHtml||'<span style="opacity:.4">— no script sent —</span>';
+    pvMax(); pvPos = seekPos * pvMaxV; drawPrev();
+  }
+  function pvMax(){ pvMaxV=Math.max(0, pv.scrollHeight - pw.clientHeight); }
+  function drawPrev(){ if(pvPos<0)pvPos=0; if(pvPos>pvMaxV)pvPos=pvMaxV; pv.style.transform='translateY('+(-Math.round(pvPos))+'px)'; }
+  function nudgePreview(dy){ pvPos+=dy*0.28; drawPrev(); }
+  function pvAdvance(){
+    var now=(window.performance&&performance.now)?performance.now():Date.now();
+    if(st.playing){ if(pvLast){ pvPos += st.speed*0.28*(now-pvLast)/1000; pvMax(); drawPrev(); } pvLast=now; }
+    else pvLast=0;
+  }
+  (function loop(){ pvAdvance(); requestAnimationFrame(loop); })();
+  setInterval(pvAdvance, 33);
+
+  // ---------------- hydrate from Firebase, then go live ----------------
+  base().once('value').then(function(snap){
+    var v=snap.val()||{};
+    if(v.settings){ for(var k in v.settings){ if(st.hasOwnProperty(k)) st[k]=v.settings[k]; } }
+    if(v.content){ contentVer=v.content.ver||0; if(v.content.html){ lastHtml=v.content.html; editor.innerHTML=lastHtml; } }
+    if(v.cmd && typeof v.cmd.n==='number'){ cmdN=v.cmd.n; }
+    // reflect restored state into the UI
+    $('speed').value=st.speed; $('fs').value=st.fontSize; $('lh').value=st.lineHeight; $('mg').value=st.margin;
+    $('speedV').textContent=st.speed+' px/s'; $('fsV').textContent=st.fontSize+' px';
+    $('lhV').textContent=(+st.lineHeight).toFixed(2); $('mgV').textContent=st.margin+' vw';
+    $('mh').checked=st.mirrorH; $('mv').checked=st.mirrorV; $('sl').checked=st.showLine;
+    reflectPlay(); applyPreview();
+    ready=true; settingsRef.set(st);   // ensure a settings node exists for the display
+  }).catch(function(){ ready=true; applyPreview(); });
+})();
+</script>
+</body>
+</html>

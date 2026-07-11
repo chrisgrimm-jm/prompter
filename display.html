@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Teleprompter — Display</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{width:100%;height:100%;overflow:hidden;background:#0b0b0b;}
+  body{
+    font-family:'Helvetica Neue',Arial,system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;color:#fff;
+  }
+  /* fixed viewport — we scroll by translating #prompt, not with a scrollbar */
+  #view{position:fixed;inset:0;overflow:hidden;}
+  #flip{position:absolute;inset:0;transform-origin:center center;}
+  #prompt{
+    padding:45vh 8vw;                 /* top/bottom padding lets text start low and scroll up */
+    font-size:60px;line-height:1.4;font-weight:600;will-change:transform;
+  }
+  #prompt p,#prompt div,#prompt li,#prompt h1,#prompt h2,#prompt h3,#prompt h4{margin:0 0 .55em 0;}
+  #prompt ul,#prompt ol{margin:0 0 .55em 1.3em;}
+  #prompt b,#prompt strong{font-weight:900;}
+
+  #line{position:fixed;left:0;right:0;top:40%;height:0;border-top:2px solid rgba(255,90,90,.55);pointer-events:none;display:none;}
+  #line::before,#line::after{content:'';position:absolute;top:-9px;border:9px solid transparent;}
+  #line::before{left:0;border-left-color:rgba(255,90,90,.7);}
+  #line::after{right:0;border-right-color:rgba(255,90,90,.7);}
+  body.showline #line{display:block;}
+
+  #status{position:fixed;top:12px;left:12px;z-index:10;font:700 12px/1 system-ui,sans-serif;color:#fff;background:#c0392b;padding:6px 10px;border-radius:6px;opacity:.9;}
+  #hint{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9;font:400 20px/1.5 system-ui,sans-serif;color:#cfd6dd;text-align:center;background:rgba(0,0,0,.55);padding:24px 30px;border-radius:14px;max-width:560px;}
+  #hint b{color:#fff;} #hint small{font-size:14px;color:#8b98a5;display:block;margin-top:10px;}
+  body.clean #status,body.clean #hint{display:none;}
+</style>
+</head>
+<body class="showline">
+  <div id="status">● connecting…</div>
+  <div id="hint">
+    <b>Teleprompter ready.</b>
+    <small>Waiting for the control page to send a script.<br>
+    Open this window fullscreen (F11) on the in-room monitor.<br>
+    Do <b>not</b> add it as an OBS source — that's what keeps it off the livestream.</small>
+  </div>
+  <div id="view"><div id="flip"><div id="prompt"></div></div></div>
+  <div id="line"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+<script>
+(function(){
+  "use strict";
+  var params = new URLSearchParams(location.search);
+  var topic  = (params.get('topic')||'').trim();
+
+  var statusEl = document.getElementById('status');
+  var hintEl   = document.getElementById('hint');
+  var flipEl   = document.getElementById('flip');
+  var promptEl = document.getElementById('prompt');
+
+  // ---------------- Firebase (shared Jomboy project) ----------------
+  var FIREBASE_CONFIG = {
+    apiKey: "AIzaSyBG2PS2muH4i27HefuLeBnZWW-TZ5dkMCw",
+    authDomain: "pinpoint-abf21.firebaseapp.com",
+    databaseURL: "https://pinpoint-abf21-default-rtdb.firebaseio.com",
+    projectId: "pinpoint-abf21",
+    storageBucket: "pinpoint-abf21.firebasestorage.app",
+    messagingSenderId: "947703489099",
+    appId: "1:947703489099:web:c4ed96cfbaeeda594463ce"
+  };
+  firebase.initializeApp(FIREBASE_CONFIG);
+  var _db = firebase.database();
+  function ppKey(t){ return String(t).trim().replace(/[.#$\[\]\/\s]+/g,'-'); }
+
+  // ---------------- scroll engine ----------------
+  var pos = 0;                 // float px scrolled from top
+  var settings = {
+    playing:false, speed:70, fontSize:60, lineHeight:1.4, weight:600,
+    bg:'#0b0b0b', fg:'#ffffff', margin:8, mirrorH:false, mirrorV:false, showLine:true
+  };
+  var haveContent = false, contentVer = -1;
+
+  function maxPos(){ return Math.max(0, promptEl.scrollHeight - window.innerHeight); }
+  function clamp(){ if(pos<0)pos=0; var m=maxPos(); if(pos>m)pos=m; }
+  function applyTransform(){
+    flipEl.style.transform = 'scale('+(settings.mirrorH?-1:1)+','+(settings.mirrorV?-1:1)+')';
+    promptEl.style.transform = 'translateY(' + (-Math.round(pos)) + 'px)';
+  }
+  function applySettings(){
+    document.body.style.background = settings.bg;
+    promptEl.style.color      = settings.fg;
+    promptEl.style.fontSize   = settings.fontSize + 'px';
+    promptEl.style.lineHeight = settings.lineHeight;
+    promptEl.style.fontWeight = settings.weight;
+    promptEl.style.paddingLeft  = settings.margin + 'vw';
+    promptEl.style.paddingRight = settings.margin + 'vw';
+    document.body.classList.toggle('showline', !!settings.showLine);
+    clamp(); applyTransform();
+  }
+  // real-time delta, sampled by BOTH rAF and a setInterval backstop, so scroll never stalls
+  // even if the browser throttles animation frames. Sharing lastTime means double-sampling
+  // never double-advances (dt is just smaller).
+  var lastTime = 0;
+  function advance(){
+    var now = (window.performance && performance.now) ? performance.now() : Date.now();
+    if(settings.playing && haveContent){
+      if(lastTime){ pos += settings.speed * (now - lastTime) / 1000; clamp(); applyTransform(); }
+      lastTime = now;
+    } else { lastTime = 0; }
+  }
+  (function loop(){ advance(); requestAnimationFrame(loop); })();
+  setInterval(advance, 33);
+  window.addEventListener('resize', function(){ clamp(); applyTransform(); });
+
+  function setContent(html, ver){
+    if(ver != null){ if(ver <= contentVer) return; contentVer = ver; }
+    promptEl.innerHTML = html || '';
+    haveContent = !!(html && html.length);
+    pos = 0; clamp(); applyTransform();
+    if(haveContent) document.body.classList.add('clean');
+  }
+
+  // ---------------- Firebase subscription ----------------
+  function base(){ return _db.ref('prompter/' + ppKey(topic)); }
+  var lastCmdN = null;   // baseline so a stale command isn't replayed on (re)connect
+
+  function applyState(v){
+    if(!v) return;
+    if(v.settings){
+      for(var k in v.settings){ if(settings.hasOwnProperty(k)) settings[k] = v.settings[k]; }
+      applySettings();
+    }
+    if(v.content && typeof v.content.ver === 'number'){
+      setContent(v.content.html || '', v.content.ver);
+    }
+    if(v.cmd && typeof v.cmd.n === 'number'){
+      if(lastCmdN === null){ lastCmdN = v.cmd.n; }        // first snapshot: adopt as baseline, don't act
+      else if(v.cmd.n > lastCmdN){
+        lastCmdN = v.cmd.n;
+        if(v.cmd.t === 'seek'){ pos = (typeof v.cmd.frac==='number'? v.cmd.frac*maxPos() : pos); clamp(); applyTransform(); }
+        else if(v.cmd.t === 'nudge'){ pos += (v.cmd.dy||0); clamp(); applyTransform(); }
+      }
+    }
+  }
+
+  if(!topic){ statusEl.textContent='● no session (add ?topic=…)'; statusEl.style.background='#7a1d1d'; }
+  else {
+    _db.ref('.info/connected').on('value', function(s){
+      if(s.val()){ statusEl.textContent='● live'; statusEl.style.background='#27ae60'; }
+      else { statusEl.textContent='● connecting…'; statusEl.style.background='#c0392b'; }
+    });
+    base().on('value', function(snap){ applyState(snap.val()); });
+  }
+
+  // ---------------- local keyboard control (handy right at the room machine) ----------------
+  window.addEventListener('keydown', function(e){
+    if(e.code==='Space'){ e.preventDefault(); settings.playing = !settings.playing; }
+    else if(e.key==='ArrowUp'){ pos -= 40; clamp(); applyTransform(); }
+    else if(e.key==='ArrowDown'){ pos += 40; clamp(); applyTransform(); }
+    else if(e.key==='Home'){ pos = 0; clamp(); applyTransform(); }
+    else if(e.key==='End'){ pos = maxPos(); applyTransform(); }
+    else if(e.key==='+'||e.key==='='){ settings.speed += 10; }
+    else if(e.key==='-'){ settings.speed = Math.max(0, settings.speed-10); }
+    else if(e.key.toLowerCase()==='f'){ if(document.fullscreenElement){document.exitFullscreen();}else{document.documentElement.requestFullscreen();} }
+  });
+  applySettings();
+})();
+</script>
+</body>
+</html>
