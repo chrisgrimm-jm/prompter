@@ -249,6 +249,7 @@
     if(s.textDecorationLine && s.textDecorationLine!=='none') keep.push('text-decoration:'+s.textDecorationLine);
     else if(s.textDecoration && /(underline|line-through)/.test(s.textDecoration)) keep.push('text-decoration:'+s.textDecoration);
     if(/^(P|DIV|H1|H2|H3|H4|LI)$/.test(el.tagName) && s.textAlign && s.textAlign!=='start') keep.push('text-align:'+s.textAlign);
+    if(s.fontFamily) keep.push('font-family:'+s.fontFamily);
     return keep.join(';');
   }
   function sanitize(node){
@@ -517,6 +518,8 @@
             if(cs.fontStyle==='italic') el.style.fontStyle='italic';
             var tdl=cs.textDecorationLine||'';
             if(tdl && tdl!=='none') el.style.textDecorationLine=tdl;
+            if(cs.textAlign && cs.textAlign!=='start' && cs.textAlign!=='left') el.style.textAlign=cs.textAlign;
+            if(cs.fontFamily) el.style.fontFamily=cs.fontFamily;
           }catch(e){}
         }
       }catch(e){}
