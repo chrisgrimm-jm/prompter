@@ -50,6 +50,11 @@
   .sw.hl{border-radius:4px;}
   .tool{font-size:12px;padding:6px 9px;}
   .editing{font-size:11.5px;color:var(--gold);font-weight:700;text-transform:none;letter-spacing:0;}
+  .trimbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;}
+  #editor .trimOut{opacity:.3;}
+  #editor .tStart{box-shadow:inset 5px 0 0 var(--live);padding-left:9px;}
+  #editor .tEnd{box-shadow:inset -5px 0 0 #e0556b;padding-right:9px;}
+  #editor .tStart.tEnd{box-shadow:inset 5px 0 0 var(--live), inset -5px 0 0 #e0556b;}
 
   .pill{display:inline-flex;align-items:center;gap:6px;background:#0b0f16;border:1px solid var(--edge);border-radius:20px;padding:5px 11px;font-size:12px;}
   #link{display:inline-block;width:9px;height:9px;border-radius:50%;background:#c0392b;}
@@ -102,6 +107,12 @@
         <label>Copy</label>
         <div class="swatches" id="swatches"></div>
         <div id="editor" contenteditable="true" spellcheck="false"></div>
+        <div class="trimbar">
+          <button id="trimStartBtn" class="tool">✂ Set Start</button>
+          <button id="trimEndBtn" class="tool">✂ Set End</button>
+          <button id="trimClear" class="tool">Clear Trim</button>
+          <span id="trimInfo" style="color:var(--dim);font-size:11.5px;"></span>
+        </div>
         <div class="btns" style="margin-top:10px;">
           <button id="saveScript" class="primary">💾 Save to library</button>
           <button id="saveSend">💾 Save &amp; put on prompter</button>
@@ -109,12 +120,14 @@
           <span class="msg" id="msg"></span>
         </div>
 
-        <label>…or load a published Google Doc into this read (File ▸ Share ▸ Publish to web)</label>
+        <label>…or link a published Google Doc (File ▸ Share ▸ Publish to web)</label>
         <div class="row">
           <input type="url" id="docUrl" placeholder="https://docs.google.com/document/d/e/…/pub">
-          <button id="loadDoc" class="tool">Load</button>
+          <button id="loadDoc" class="tool">Load &amp; Link</button>
+          <button id="unlinkDoc" class="tool" style="display:none">Unlink</button>
         </div>
-        <div class="note">If Google blocks the fetch (a CORS error), just open the Doc and paste the text in above — pasting keeps every color and highlight.</div>
+        <div id="docStatus" class="note"></div>
+        <div class="note">Linked docs auto-refresh every 60 s so your sales team's changes appear automatically. If Google blocks the fetch (CORS), just paste instead.</div>
       </div>
 
       <div class="panel">
@@ -211,6 +224,7 @@
   var library = [];         // [{id, name, html, ts}]
   var editingId = null;     // script currently loaded in the editor (null = new/unsaved)
   var activeId  = null;     // script currently on the prompter
+  var trimStartIdx = -1, trimEndIdx = -1, trimMode = null;  // trim point state
 
   function pushSettings(){ if(ready) settingsRef.set(st); applyPreview(); }
   function command(t, extra){ var c = Object.assign({n:++cmdN, t:t}, extra||{}); cmdRef.set(c); }
@@ -275,6 +289,93 @@
 
   function msg(t,cls){ var m=$('msg'); m.textContent=t; m.className='msg '+(cls||''); if(t) setTimeout(function(){ if(m.textContent===t){m.textContent='';m.className='msg';} },4000); }
 
+  // ---------------- trim points ----------------
+  function getBlocks(){ return Array.from(editor.children); }
+  function blockText(el){ return (el.innerText||el.textContent||'').trim(); }
+
+  function applyTrimVisuals(){
+    var blocks=getBlocks();
+    blocks.forEach(function(b,i){
+      b.classList.remove('trimOut','tStart','tEnd');
+      if(trimStartIdx>=0 && i<trimStartIdx) b.classList.add('trimOut');
+      if(trimEndIdx>=0 && i>trimEndIdx) b.classList.add('trimOut');
+      if(i===trimStartIdx) b.classList.add('tStart');
+      if(i===trimEndIdx) b.classList.add('tEnd');
+    });
+    var info=$('trimInfo'), parts=[];
+    if(trimStartIdx>=0) parts.push('Start: line '+(trimStartIdx+1));
+    if(trimEndIdx>=0) parts.push('End: line '+(trimEndIdx+1));
+    info.textContent=parts.join(' · ');
+  }
+
+  function trimAnchor(idx){
+    if(idx<0) return null;
+    var blocks=getBlocks();
+    if(idx>=blocks.length) return null;
+    return blockText(blocks[idx]).substring(0,80);
+  }
+
+  function findAnchor(anchor){
+    if(!anchor) return -1;
+    var blocks=getBlocks();
+    for(var i=0;i<blocks.length;i++){
+      if(blockText(blocks[i]).substring(0,80)===anchor) return i;
+    }
+    return -1;
+  }
+
+  function getTrimmedHtml(){
+    var blocks=getBlocks();
+    if(!blocks.length) return editor.innerHTML;
+    if(trimStartIdx<0 && trimEndIdx<0) return editor.innerHTML;
+    var s=trimStartIdx>=0?trimStartIdx:0;
+    var e=trimEndIdx>=0?trimEndIdx:blocks.length-1;
+    var html='';
+    for(var i=s;i<=e&&i<blocks.length;i++) html+=blocks[i].outerHTML;
+    return html;
+  }
+
+  function clearTrim(){
+    trimStartIdx=-1; trimEndIdx=-1; trimMode=null;
+    $('trimStartBtn').classList.remove('primary');
+    $('trimEndBtn').classList.remove('primary');
+    editor.style.cursor='';
+    applyTrimVisuals();
+  }
+
+  editor.addEventListener('click',function(e){
+    if(!trimMode) return;
+    var target=e.target;
+    while(target && target.parentNode!==editor) target=target.parentNode;
+    if(!target || target.parentNode!==editor) return;
+    var idx=getBlocks().indexOf(target);
+    if(idx<0) return;
+    if(trimMode==='start'){
+      trimStartIdx=idx;
+      if(trimEndIdx>=0 && trimEndIdx<trimStartIdx) trimEndIdx=-1;
+    } else {
+      trimEndIdx=idx;
+      if(trimStartIdx>=0 && trimStartIdx>trimEndIdx) trimStartIdx=-1;
+    }
+    trimMode=null;
+    $('trimStartBtn').classList.remove('primary');
+    $('trimEndBtn').classList.remove('primary');
+    editor.style.cursor='';
+    applyTrimVisuals();
+  });
+
+  $('trimStartBtn').onclick=function(){
+    if(trimMode==='start'){ trimMode=null; this.classList.remove('primary'); editor.style.cursor=''; return; }
+    trimMode='start'; this.classList.add('primary'); $('trimEndBtn').classList.remove('primary');
+    editor.style.cursor='crosshair';
+  };
+  $('trimEndBtn').onclick=function(){
+    if(trimMode==='end'){ trimMode=null; this.classList.remove('primary'); editor.style.cursor=''; return; }
+    trimMode='end'; this.classList.add('primary'); $('trimStartBtn').classList.remove('primary');
+    editor.style.cursor='crosshair';
+  };
+  $('trimClear').onclick=clearTrim;
+
   // ---------------- library render + CRUD ----------------
   function findScript(id){ for(var i=0;i<library.length;i++){ if(library[i].id===id) return library[i]; } return null; }
 
@@ -293,6 +394,7 @@
       go.title='Put this read on the prompter';
       go.innerHTML='<span class="tri">▶</span><span class="nm"></span>'
                  + (s.id===activeId?'<span class="liveBadge">LIVE</span>':'')
+                 + (s.docUrl?'<span class="wc" title="Linked Google Doc — auto-refreshes">🔗</span>':'')
                  + '<span class="wc">'+wc+' words</span>';
       go.querySelector('.nm').textContent = s.name || 'Untitled';
       go.onclick=function(){ goLive(s); };
@@ -313,8 +415,24 @@
   }
 
   // Put a read on the prompter: write its content, reset to top, hold paused so the host can hit Play.
+  function extractTrimmed(fullHtml, startAnchor, endAnchor){
+    if(!startAnchor && !endAnchor) return fullHtml;
+    var tmp=document.createElement('div'); tmp.innerHTML=fullHtml;
+    var blocks=Array.from(tmp.children);
+    if(!blocks.length) return fullHtml;
+    var si=-1, ei=-1;
+    if(startAnchor){ for(var i=0;i<blocks.length;i++){ if((blocks[i].innerText||blocks[i].textContent||'').trim().substring(0,80)===startAnchor){si=i;break;} } }
+    if(endAnchor){ for(var i=0;i<blocks.length;i++){ if((blocks[i].innerText||blocks[i].textContent||'').trim().substring(0,80)===endAnchor){ei=i;break;} } }
+    if(si<0 && ei<0) return fullHtml;
+    var s=si>=0?si:0, e=ei>=0?ei:blocks.length-1;
+    var html='';
+    for(var i=s;i<=e&&i<blocks.length;i++) html+=blocks[i].outerHTML;
+    return html;
+  }
+
   function goLive(s){
-    lastHtml = s.html || '';
+    var liveHtml = s.trimHtml || extractTrimmed(s.html||'', s.trimStart||null, s.trimEnd||null);
+    lastHtml = liveHtml;
     contentVer++;
     contentRef.set({ver:contentVer, html:lastHtml, activeId:s.id||null, name:s.name||''});
     activeId = s.id || null;
@@ -329,6 +447,11 @@
     editingId = s.id;
     $('scriptName').value = s.name || '';
     editor.innerHTML = s.html || '';
+    trimStartIdx = s.trimStart ? findAnchor(s.trimStart) : -1;
+    trimEndIdx = s.trimEnd ? findAnchor(s.trimEnd) : -1;
+    applyTrimVisuals();
+    $('docUrl').value = s.docUrl || '';
+    reflectDocLink();
     $('editingLbl').textContent = '— editing “'+(s.name||'Untitled')+'”';
     editor.scrollIntoView({behavior:'smooth', block:'nearest'});
   }
@@ -336,6 +459,9 @@
     editingId = null;
     $('scriptName').value = '';
     editor.innerHTML = '';
+    clearTrim();
+    $('docUrl').value = '';
+    reflectDocLink();
     $('editingLbl').textContent = '— new read';
     $('scriptName').focus();
   }
@@ -344,39 +470,95 @@
     var name = ($('scriptName').value||'').trim() || 'Untitled read';
     var html = sanitize(editor);
     if(!plainText(html)){ msg('Nothing to save — paste some copy first.','err'); return null; }
+    var data = {name:name, html:html};
+    var sa=trimAnchor(trimStartIdx), ea=trimAnchor(trimEndIdx);
+    if(sa) data.trimStart=sa; else data.trimStart=null;
+    if(ea) data.trimEnd=ea; else data.trimEnd=null;
+    var du=($('docUrl').value||'').trim();
+    data.docUrl=du||null;
     if(editingId){
-      scriptsRef.child(editingId).update({name:name, html:html});
+      scriptsRef.child(editingId).update(data);
     } else {
-      var r = scriptsRef.push({name:name, html:html, ts: firebase.database.ServerValue.TIMESTAMP});
+      data.ts = firebase.database.ServerValue.TIMESTAMP;
+      var r = scriptsRef.push(data);
       editingId = r.key;
     }
     $('editingLbl').textContent = '— editing “'+name+'”';
-    // if this read is the one currently on the prompter, refresh it live too
-    if(editingId===activeId){ goLive({id:editingId, name:name, html:html}); }
-    return {id:editingId, name:name, html:html};
+    var trimHtml = getTrimmedHtml();
+    if(editingId===activeId){ goLive({id:editingId, name:name, html:html, trimHtml:trimHtml}); }
+    return {id:editingId, name:name, html:html, trimHtml:trimHtml};
   }
   $('newScript').onclick = newScript;
   $('saveScript').onclick = function(){ if(saveScript()) msg('Saved to library ✓','ok'); };
   $('saveSend').onclick   = function(){ var s=saveScript(); if(s) goLive(s); };
   $('cancelEdit').onclick = newScript;
 
-  $('loadDoc').onclick=function(){
-    var u=$('docUrl').value.trim();
-    if(!u){ msg('Paste a published Doc link first.','err'); return; }
-    var tryUrls=[u], m2=u.match(/\/document\/d\/([a-zA-Z0-9_-]+)/);
+  function reflectDocLink(){
+    var linked=!!($('docUrl').value||'').trim();
+    $('unlinkDoc').style.display=linked?'':'none';
+    if(!linked) $('docStatus').textContent='';
+  }
+
+  function fetchDoc(url, cb){
+    var tryUrls=[url], m2=url.match(/\/document\/d\/([a-zA-Z0-9_-]+)/);
     if(m2){ tryUrls.unshift('https://docs.google.com/document/d/'+m2[1]+'/export?format=html'); }
-    msg('Fetching…');
     (function attempt(i){
-      if(i>=tryUrls.length){ msg('Google blocked the fetch (CORS). Open the Doc and paste instead.','err'); return; }
+      if(i>=tryUrls.length){ cb(null); return; }
       fetch(tryUrls[i]).then(function(r){ if(!r.ok) throw 0; return r.text(); })
         .then(function(html){
           var tmp=document.createElement('div'); tmp.innerHTML=html;
-          var clean=sanitize(tmp.querySelector('body')||tmp);
-          editor.innerHTML=clean;
-          msg('Loaded into editor — name it and Save ✓','ok');
+          cb(sanitize(tmp.querySelector('body')||tmp));
         }).catch(function(){ attempt(i+1); });
     })(0);
+  }
+
+  $('loadDoc').onclick=function(){
+    var u=$('docUrl').value.trim();
+    if(!u){ msg('Paste a published Doc link first.','err'); return; }
+    msg('Fetching…');
+    fetchDoc(u, function(clean){
+      if(!clean){ msg('Google blocked the fetch (CORS). Open the Doc and paste instead.','err'); return; }
+      editor.innerHTML=clean;
+      reflectDocLink();
+      msg('Loaded & linked — auto-refreshes every 60 s. Name it and Save ✓','ok');
+      $('docStatus').textContent='Linked — last fetched just now';
+    });
   };
+
+  $('unlinkDoc').onclick=function(){
+    $('docUrl').value='';
+    reflectDocLink();
+    msg('Doc unlinked — auto-refresh stopped.','ok');
+  };
+
+  // ---------------- auto-refresh linked docs every 60 s ----------------
+  var DOC_REFRESH_MS = 60000;
+  setInterval(function(){
+    if(!ready) return;
+    library.forEach(function(s){
+      if(!s.docUrl) return;
+      fetchDoc(s.docUrl, function(clean){
+        if(!clean) return;
+        if(clean===s.html) return;
+        scriptsRef.child(s.id).update({html:clean});
+        if(s.id===editingId){
+          var scrollTop=editor.scrollTop;
+          editor.innerHTML=clean;
+          editor.scrollTop=scrollTop;
+          trimStartIdx = s.trimStart ? findAnchor(s.trimStart) : -1;
+          trimEndIdx = s.trimEnd ? findAnchor(s.trimEnd) : -1;
+          applyTrimVisuals();
+          $('docStatus').textContent='Linked — last refreshed '+new Date().toLocaleTimeString();
+        }
+        if(s.id===activeId){
+          var liveHtml=extractTrimmed(clean, s.trimStart, s.trimEnd);
+          lastHtml=liveHtml; contentVer++;
+          contentRef.set({ver:contentVer, html:lastHtml, activeId:s.id, name:s.name||''});
+          applyPreview();
+        }
+      });
+    });
+  }, DOC_REFRESH_MS);
 
   // ---------------- transport controls ----------------
   var playBtn=$('play');
@@ -442,7 +624,7 @@
   // ---------------- live library subscription ----------------
   scriptsRef.on('value', function(snap){
     var v = snap.val() || {};
-    library = Object.keys(v).map(function(k){ return {id:k, name:v[k].name, html:v[k].html, ts:v[k].ts||0}; });
+    library = Object.keys(v).map(function(k){ return {id:k, name:v[k].name, html:v[k].html, ts:v[k].ts||0, trimStart:v[k].trimStart||null, trimEnd:v[k].trimEnd||null, docUrl:v[k].docUrl||null}; });
     library.sort(function(a,b){ return (a.ts||0) - (b.ts||0); });
     renderLib(); setNowLive();
   });
