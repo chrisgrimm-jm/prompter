@@ -75,7 +75,7 @@
   // ---------------- scroll engine ----------------
   var pos = 0;                 // float px scrolled from top
   var settings = {
-    playing:false, speed:70, fontSize:60, lineHeight:1.4, weight:600,
+    playing:false, speed:70, fontSize:60, lineHeight:1.4,
     bg:'#0b0b0b', fg:'#ffffff', margin:8, mirrorH:false, mirrorV:false, showLine:true
   };
   var haveContent = false, contentVer = -1;
@@ -91,7 +91,6 @@
     promptEl.style.color      = settings.fg;
     promptEl.style.fontSize   = settings.fontSize + 'px';
     promptEl.style.lineHeight = settings.lineHeight;
-    promptEl.style.fontWeight = settings.weight;
     promptEl.style.paddingLeft  = settings.margin + 'vw';
     promptEl.style.paddingRight = settings.margin + 'vw';
     document.body.classList.toggle('showline', !!settings.showLine);
