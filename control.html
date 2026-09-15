@@ -351,10 +351,9 @@
 
   editor.addEventListener('click',function(e){
     if(!trimMode) return;
-    var target=e.target;
-    while(target && target.parentNode!==editor) target=target.parentNode;
-    if(!target || target.parentNode!==editor) return;
-    var idx=getBlocks().indexOf(target);
+    var blocks=getBlocks(), target=e.target;
+    while(target && target!==editor && blocks.indexOf(target)<0) target=target.parentNode;
+    var idx=blocks.indexOf(target);
     if(idx<0) return;
     if(trimMode==='start'){
       trimStartIdx=idx;
