@@ -291,7 +291,14 @@
   function msg(t,cls){ var m=$('msg'); m.textContent=t; m.className='msg '+(cls||''); if(t) setTimeout(function(){ if(m.textContent===t){m.textContent='';m.className='msg';} },4000); }
 
   // ---------------- trim points ----------------
-  function getBlocks(){ return Array.from(editor.children); }
+  // Google Docs wraps a whole paste in one container (<b docs-internal-guid>, a <div>, etc.),
+  // so editor.children is that lone wrapper, not the lines. Descend through it to the real blocks.
+  function topBlocks(root){
+    var kids=Array.from(root.children);
+    while(kids.length===1 && kids[0].children.length>1) kids=Array.from(kids[0].children);
+    return kids;
+  }
+  function getBlocks(){ return topBlocks(editor); }
   function blockText(el){ return (el.innerText||el.textContent||'').trim(); }
 
   function applyTrimVisuals(){
@@ -417,7 +424,7 @@
   function extractTrimmed(fullHtml, startAnchor, endAnchor){
     if(!startAnchor && !endAnchor) return fullHtml;
     var tmp=document.createElement('div'); tmp.innerHTML=fullHtml;
-    var blocks=Array.from(tmp.children);
+    var blocks=topBlocks(tmp);
     if(!blocks.length) return fullHtml;
     var si=anchorIdx(blocks,startAnchor), ei=anchorIdx(blocks,endAnchor);
     if(si<0 && ei<0) return fullHtml;
