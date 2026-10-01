@@ -127,7 +127,7 @@
           <button id="unlinkDoc" class="tool" style="display:none">Unlink</button>
         </div>
         <div id="docStatus" class="note"></div>
-        <div class="note">Linked docs auto-refresh every 60 s so your sales team's changes appear automatically. If Google blocks the fetch (CORS), just paste instead.</div>
+        <div class="note">Use a <b>Publish to web</b> link (ends in <b>/pub</b>) — those load reliably and auto-refresh every 60 s so your sales team's changes appear automatically. A plain share/edit link may be blocked by Google; if a link won't load, publish it to web or just paste the copy.</div>
       </div>
 
       <div class="panel">
@@ -531,17 +531,37 @@
     if(!linked) $('docStatus').textContent='';
   }
 
+  // A "Publish to web" link (/document/d/e/…/pub) is served cross-origin, so we fetch it
+  // directly. A normal /edit or share link is NOT (docs.google.com sends no CORS header), so
+  // those route through a public proxy — fine here, since linking is only used while prepping
+  // reads before the show, never live.
+  var CORS_PROXIES = [
+    function(u){ return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); },
+    function(u){ return 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(u); }
+  ];
+  // A Publish-to-web page wraps the document in #contents (alongside a #banners chrome bar and
+  // <script> tags). Pull just #contents so we keep the doc, not Google's "Published using…" banner.
+  function extractDocBody(html){
+    var d = new DOMParser().parseFromString(html, 'text/html');
+    var c = d.getElementById('contents');
+    return c ? c.innerHTML : html;   // /export has no #contents — use as-is
+  }
   function fetchDoc(url, cb){
-    var tryUrls=[url], m2=url.match(/\/document\/d\/([a-zA-Z0-9_-]+)/);
-    if(m2){ tryUrls.unshift('https://docs.google.com/document/d/'+m2[1]+'/export?format=html'); }
-    (function attempt(i){
-      if(i>=tryUrls.length){ cb(null); return; }
-      fetch(tryUrls[i]).then(function(r){ if(!r.ok) throw 0; return r.text(); })
+    var attempts;
+    if(/\/document\/d\/e\//.test(url)){
+      attempts = [url];                                   // published to web — no proxy needed
+    } else {
+      var m = url.match(/\/document\/d\/([a-zA-Z0-9_-]+)/);
+      var target = m ? 'https://docs.google.com/document/d/'+m[1]+'/export?format=html' : url;
+      attempts = CORS_PROXIES.map(function(p){ return p(target); });
+    }
+    (function go(i){
+      if(i>=attempts.length){ cb(null); return; }
+      fetch(attempts[i], {cache:'no-store'}).then(function(r){ if(!r.ok) throw 0; return r.text(); })
         .then(function(html){
-          resolveDocStyles(html, function(body){
-            cb(sanitize(body));
-          });
-        }).catch(function(){ attempt(i+1); });
+          if(!html){ go(i+1); return; }
+          resolveDocStyles(extractDocBody(html), function(body){ cb(sanitize(body)); });
+        }).catch(function(){ go(i+1); });
     })(0);
   }
 
@@ -550,7 +570,7 @@
     if(!u){ msg('Paste a published Doc link first.','err'); return; }
     msg('Fetching…');
     fetchDoc(u, function(clean){
-      if(!clean){ msg('Google blocked the fetch (CORS). Open the Doc and paste instead.','err'); return; }
+      if(!clean){ msg('Couldn’t load that link. Use File ▸ Share ▸ Publish to web and paste the /pub link (most reliable) — or just paste the copy.','err'); return; }
       editor.innerHTML=clean;
       reflectDocLink();
       msg('Loaded & linked — auto-refreshes every 60 s. Name it and Save ✓','ok');
